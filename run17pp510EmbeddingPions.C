@@ -5,8 +5,10 @@
 #include "TTree.h"
 #include "TH1.h"
 #include "TH2.h"
+#include "TChain.h"
 
-//#include "StEvent/StEvent.h"
+//#include "$STAR/StRoot/StMuDSTMaker/COMMON/StMuDstMaker.h"
+
 class StMuDstMaker;
 class StMuDebug;
 class StSpinDbMaker;
@@ -14,6 +16,7 @@ class StChain;
 class StMaker;
 class StMuMcTrack;
 class StMuMcVertex;
+
 StMuDstMaker *maker;
 
 void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char *oFile) // grid mode
@@ -26,6 +29,7 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
     loadSharedLibraries();
 
     gSystem->Load("StEvent");
+    gSystem->Load("StMuDSTMaker");
 
     gSystem->Load("StSpinDbMaker");
     gSystem->Load("StDbBroker");
@@ -37,8 +41,9 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
     gSystem->Load("StMCAsymMaker");
     gSystem->Load("StTriggerUtilities");
     // included for MC information
-    // gSystem->Load("StMuMcTrack");
+    // gSystem->Load("StMcEvent");
     // gSystem->Load("StMuMcVertex");
+    // gSystem->Load("StMuMcTrack");
     //////////////////////////////
     gSystem->Load("StDetectorDbMaker");
     gSystem->Load("StTpcDb");
@@ -69,14 +74,15 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
     // gSystem->Load("StPythiaEvent");
     // gSystem->Load("StJetMaker");
     gSystem->Load("StTriggerFilterMaker");
-    // gSystem->Load("StEEmcA2EMaker");
+    // gSystem->Load("StMuDSTMaker");
+    //  gSystem->Load("StEEmcA2EMaker");
 
     gROOT->ProcessLine("#include <map>");
-    gROOT->Macro("$STAR/StRoot/StMuDSTMaker/COMMON/macros/loadSharedLibraries.C");
-    gROOT->Macro("LoadLogger.C"); // not quite sure what this does or where it is.
+    // gROOT->Macro("$STAR/StRoot/StMuDSTMaker/COMMON/macros/loadSharedLibraries.C");
+    // gROOT->Macro("LoadLogger.C"); // not quite sure what this does or where it is.
     cout << " loading done " << endl;
 
-    const int fMaxHit = 3000;
+    const int fMaxHit = 5000;
     Int_t ffillNum;
     Int_t frunId;
     Int_t fevtNum;
@@ -86,11 +92,13 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
     Int_t fspinBits;
     Int_t fspinconfig;
     Int_t frefmult;
-    vector<int> ftrigger; 
+    vector<int> ftrigger;
     Int_t fmaxpar1;
     Int_t fmaxpar;
 
     Double_t fVZ;
+    Int_t fStatusCode_pyth[fMaxHit];
+
     Double_t fVZ_pyth;
     Double_t fVY_pyth;
     Double_t fVX_pyth;
@@ -148,6 +156,14 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
     Double_t fBetaToF[fMaxHit];
     Int_t trueID[fMaxHit];
 
+    Int_t idTruth[fMaxHit];
+    Double_t fpT_mc[fMaxHit];
+    Double_t fp_mc[fMaxHit];
+    Double_t feta_mc[fMaxHit];
+    Double_t fphi_mc[fMaxHit];
+    Int_t fpId_mc[fMaxHit]; // mc particle identification
+    Int_t fId_mc[fMaxHit];  // mc id to match with idTruth
+
     TVector3 mcVertex;
 
     // Tower Information
@@ -166,7 +182,7 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
     ftree->Branch("frefmult", &frefmult, "frefmult/I");
     // ftree->Branch("ftrigger",&ftrigger, "ftrigger/I");
     ftree->Branch("ftrigger", &ftrigger);
-    
+
     ftree->Branch("fmaxpar1", &fmaxpar1, "fmaxpar1/I");
     ftree->Branch("fmaxpar", &fmaxpar, "fmaxpar/I");
 
@@ -235,6 +251,17 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
     ftree->Branch("fTowerEta", &fTowerEta, "fTowerEta/D");
     ftree->Branch("fTowerPhi", &fTowerPhi, "fTowerPhi/D");
 
+    ftree->Branch("idTruth", idTruth, "idTruth[fmaxpar]/I");
+    ftree->Branch("fStatusCode_pyth", fStatusCode_pyth, "fStatusCode_pyth[fmaxpar1]/I");
+
+    // matched mc tracks with the reconstructed tracks. unmatched flag == -999
+    ftree->Branch("fpT_mc", fpT_mc, "fpT_mc[fmaxpar]/D");
+    ftree->Branch("fp_mc", fp_mc, "fp_mc[fmaxpar]/D");
+    ftree->Branch("feta_mc", feta_mc, "feta_mc[fmaxpar]/D");
+    ftree->Branch("fphi_mc", fphi_mc, "fphi_mc[fmaxpar]/D");
+    ftree->Branch("fpId_mc", fpId_mc, "fpId_mc[fmaxpar]/I");
+    ftree->Branch("fId_mc", fId_mc, "fId_mc[fmaxpar]/I");
+
     cout << "OutPut File name is : " << oFile << endl;
 
     chain = new StChain("StChain");
@@ -251,6 +278,8 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
     char theFilter[80];
     sprintf(theFilter, ".MuDst.root:MuDst.root");
     maker = new StMuDstMaker(0, 0, "", muFile, theFilter, 1000); // set up maker in read mode
+    // maker->SetStatus("MCAll", 1);
+
     // star database
     St_db_Maker *stDb = new St_db_Maker("StarDb", "MySQL:StarDb");
     // spin database
@@ -278,7 +307,8 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
     const char *pass = "";
     TMySQLServer *mysql = TMySQLServer::Connect(database, user, pass);
 
-    StTriggerSimuMaker *simuTrig = new StTriggerSimuMaker("StarTrigSimu");    simuTrig->useOfflineDB();
+    StTriggerSimuMaker *simuTrig = new StTriggerSimuMaker("StarTrigSimu");
+    simuTrig->useOfflineDB();
     // simuTrig->setMC(1); // Must be before individual detectors, to be passed
     simuTrig->setMC(2); // Must be before individual detectors, to be passed
     // BBC was not used in Run 9
@@ -287,23 +317,25 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
     simuTrig->useEemc();
     // simuTrig->bemc->setConfig(StBemcTriggerSimu::kOffline);
     simuTrig->bemc->setConfig(StBemcTriggerSimu::kOnline);
-  
+
     chain->Init();
     Int_t nevents = maker->chain()->GetEntries();
     cout << nevents << " events in chain" << endl;
-//To specify Fill direction
+    // To specify Fill direction
     int blue = 1;
     int yellow = 0;
-   
-  
 
+    // for (Int_t iev = 0; iev < 10; iev++)
     for (Int_t iev = 0; iev < nevents; iev++)
     {
+
         chain->Clear();
-        int status= chain->Make(iev);
-        if(status == kStSkip) continue;
-        if(status % 10 == kStEOF || status % 10 == kStFatal) break;
-        cout << status << "\t status of Event \t"<< iev<<endl; 
+        int status = chain->Make(iev);
+        if (status == kStSkip)
+            continue;
+        if (status % 10 == kStEOF || status % 10 == kStFatal)
+            break;
+        cout << status << "\t status of Event \t" << iev << endl;
         StMuDst *mu = maker->muDst();
         // if(!mu){LOG_WARN<<"\t No MuDst\t"<<endm; continue;}
         if (!mu)
@@ -313,6 +345,14 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
         StMuEvent *ev = maker->muDst()->event();
         StPythiaEvent *ge = weight->pythiaEvent();
         // if(!ev){LOG_WARN<<"\t No MuEvent\t"<<endm; continue;}
+        if ((ev->eventNumber() != ge->eventId()))
+        {
+            // cout << ev->runId() << "\t run Id\t" << endl;
+            // cout << ge->runId() << "\tPythia run Id\t" << endl;
+            // cout << ev->eventNumber() << "\t MuDst event Num\t" << endl;
+            // cout << ge->eventId() << "\t Pythia event Num\t" << endl;
+            continue;
+        }
         if (!ev)
             continue;
 
@@ -324,7 +364,6 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
 
         int ver = mu->numberOfPrimaryVertices();
         cout << ver << "===========Number of Primary Vertex" << endl;
-
 
         // its looping over all the vertices need to take 1st rank vertex only to compare with picoDst;
         // find Outgoin Partons
@@ -378,6 +417,7 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
         {
             if (fabs(ge->particle(j)->Eta()) < 4)
             {
+                fStatusCode_pyth[fTrackCounter1] = ge->particle(j)->GetStatusCode();
                 fpT_pyth[fTrackCounter1] = ge->particle(j)->Pt();          // track->p().perp();
                 fp_pyth[fTrackCounter1] = ge->particle(j)->P();            // track->p().mag();
                 feta_pyth[fTrackCounter1] = ge->particle(j)->Eta();        // track->eta();
@@ -388,7 +428,6 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
         } // pythia track loop ended;
         fmaxpar1 = fTrackCounter1;
 
-
         StThreeVectorF vertexPos = ev->primaryVertexPosition();
         StMuPrimaryVertex *vertex = mu->primaryVertex(0);
         assert(vertex);
@@ -396,8 +435,8 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
         if (fverRank < 1e6)
             continue;
 
-        //cout << "Ver Ranking: " << fverRank << endl;
-        // if(fabs(vertexPos.x())>1. || fabs(vertexPos.y())>1.) continue;
+        // cout << "Ver Ranking: " << fverRank << endl;
+        //  if(fabs(vertexPos.x())>1. || fabs(vertexPos.y())>1.) continue;
         Double_t fvpdVz1;
         StBTofHeader const *btofHeader = (StBTofHeader *)mu->btofHeader();
         if (btofHeader)
@@ -417,7 +456,7 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
             continue;
 
         ftrigger.clear();
-        ftrigger = simuTrig->triggerIds();          
+        ftrigger = simuTrig->triggerIds();
 
         TClonesArray *MuMcVertices = mu->mcArray(0);
         TClonesArray *MuMcTracks = mu->mcArray(1);
@@ -425,13 +464,13 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
         Int_t NoMuMcTracks = MuMcTracks->GetEntriesFast();
 
         cout << NoMuMcTracks << "\t Number of Mu MC Tracks" << endl;
+        cout << NoMuMcVertices << "\t Number of Mu MC Vertices" << endl;
 
         if (!NoMuMcVertices || !NoMuMcTracks)
         {
             cout << "This event has no MC information ==> skip it" << endl;
             continue;
         }
-
 
         int refMult = ev->refMult();
         int frunId = ev->runId();
@@ -455,6 +494,7 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
         fTrackCounter = 0;
         for (int j = 0; j < ntrk2; j++)
         {
+
             StMuTrack *track = (StMuTrack *)mu->primaryTracks(j);
             // if(track->flag() < 0) continue;
             assert(track);
@@ -467,12 +507,14 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
 
             // if(fabs(track->eta())<4.0)
             double eta = track->eta();
-            int nHitsFit=gTrk->nHitsFit();
-            //int nHitsFit = track->nHitsFit();
+            int nHitsFit = gTrk->nHitsFit();
+            // int nHitsFit = track->nHitsFit();
             double trackDCA = track->dcaGlobal().mag();
 
-            if (fabs(eta)<1.5 && nHitsFit>12 && fabs(trackDCA)<3.)
+            if (fabs(eta) < 1.5 && nHitsFit > 12 && fabs(trackDCA) < 3.)
             {
+
+                idTruth[fTrackCounter] = track->idTruth();
                 fpT[fTrackCounter] = track->p().perp();
                 fp[fTrackCounter] = track->p().mag();
                 feta[fTrackCounter] = track->eta();
@@ -492,37 +534,44 @@ void run17pp510EmbeddingPions(const char *muFile, const char *geFile, const char
                 fPathLengthToF[fTrackCounter] = track->btofPidTraits().pathLength();
                 fBetaToF[fTrackCounter] = track->btofPidTraits().beta();
 
-                /*if (track->idTruth() <= 0 || track->idTruth() > NoMuMcTracks) {
-                  cout << "Illegal idTruth " << track->idTruth() << " The track is ignored" << endl;
-                  }
-                  else {
-                  StMuMcTrack *mcTrack = (StMuMcTrack*) MuMcTracks->UncheckedAt(track->idTruth()-1);
-                  assert(mcTrack);
+                fId_mc[fTrackCounter] = -999;
+                fpT_mc[fTrackCounter] = -999;
+                fp_mc[fTrackCounter] = -999;
+                feta_mc[fTrackCounter] = -999;
+                fphi_mc[fTrackCounter] = -999;
+                fpId_mc[fTrackCounter] = -999;
 
-                  if (mcTrack->Id() = track->idTruth()) {
-                  trueID[fTrackCounter]=mcTrack->GePid();
-                  cout << "\t Hello StMuMcTrack\t "<<endl;
+                if (track->idTruth() > 0)
+                {
+                    StMuMcTrack *mcTrack = (StMuMcTrack *)MuMcTracks->UncheckedAt(track->idTruth() - 1);
+                    if (!mcTrack)
+                        continue;
+                    //cout << track->idTruth() - 1 << "\t MuMcTracks->UncheckedAt(track->idTruth() - 1)\t" << MuMcTracks->GetEntries() << "\t MuMcTracks->GetEntries()\t" << iev << "\t Event  Num\t" << j << "\t track NUmber\t" << endl;
+                    if (track->idTruth() - 1 >= MuMcTracks->GetEntries())
+                        continue;
+                    if ((mcTrack->Id() == track->idTruth()))
+                    {
+                        // cout << mcTrack->Id() << "\t mcTrack->Id()\t" << track->idTruth() << "\t track ->idTruth\t" < < endl;
+                        // cout << mcTrack->GePid() << "\t PDG code\t" << endl;
+                        fId_mc[fTrackCounter] = mcTrack->Id();
+                        fpT_mc[fTrackCounter] = mcTrack->Pxyz().perp();
+                        // cout << fpT_mc[fTrackCounter] << "\tfpT_mc\t" << endl;
+                        fp_mc[fTrackCounter] = mcTrack->Pxyz().mag();
+                        feta_mc[fTrackCounter] = mcTrack->Pxyz().pseudoRapidity();
+                        fphi_mc[fTrackCounter] = mcTrack->Pxyz().phi();
+                        fpId_mc[fTrackCounter] = mcTrack->GePid(); // Pdg code
+                    }                                              // Id truth matching between MC level to detector level
 
-                  }
-                //  cout << "Geant Particle Id = "<< mcTrack->GePid() << endl;
-                if (mcTrack->Id() != track->idTruth()) {
-                trueID[fTrackCounter]=-999.0;
+                } // if mTrack->idTruth()>0
 
-                }
-                //  cout << "Geant Particle Id = "<< mcTrack->GePid() << endl;
-                //if(mcTrack->GePid()==8) pionpt_true[0] -> Fill(TrackPt);//pi plus geant id == 8
-                //if(mcTrack->GePid()==9) pionpt_true[1] -> Fill(TrackPt);//pi minus geant id == 9
-                } //check idTruth and trackid
-                */
                 fTrackCounter++;
-            }//if Track Quality Cut
-        } // Track loop
+            } // if Track Quality Cut
+        }     // Track loop
 
         fmaxpar = fTrackCounter;
         if (fmaxpar1 > 1 && fmaxpar > 1)
             ftree->Fill();
         cout << "check #'s pythia= " << pythia << " geant=" << geant << endl;
-
 
     } // event loop
     fout->cd();
